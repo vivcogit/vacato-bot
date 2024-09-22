@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"io"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/disintegration/imaging"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -22,18 +24,22 @@ func GetBot(token string, isDebug bool) (*tgbotapi.BotAPI, error) {
 	return bot, nil
 }
 
+var httpClient = &http.Client{
+	Timeout: 10 * time.Second, // Устанавливаем тайм-аут для запросов
+}
+
 func GetUserAvatar(bot *tgbotapi.BotAPI, userId int64) (*image.NRGBA, error) {
 	photos, err := bot.GetUserProfilePhotos(tgbotapi.UserProfilePhotosConfig{
 		UserID: userId,
 		Limit:  1,
 	})
 
-	if len(photos.Photos) == 0 {
-		return nil, errors.New("you don't have avatars")
-	}
-
 	if err != nil {
 		return nil, fmt.Errorf("error geting avatar: %s", err)
+	}
+
+	if len(photos.Photos) == 0 {
+		return nil, errors.New("you don't have avatars")
 	}
 
 	largestPhoto := photos.Photos[0][len(photos.Photos[0])-1]
@@ -42,14 +48,15 @@ func GetUserAvatar(bot *tgbotapi.BotAPI, userId int64) (*image.NRGBA, error) {
 		return nil, fmt.Errorf("error loading avatar: %s", err)
 	}
 
-	resp, err := http.Get(fileConfig)
+	resp, err := httpClient.Get(fileConfig)
 	if err != nil {
 		return nil, fmt.Errorf("network error loading avatar: %s", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("network error loading avatar, status: %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("network error loading avatar, status: %d, body: %s", resp.StatusCode, string(body))
 	}
 
 	img, err := imaging.Decode(resp.Body)
