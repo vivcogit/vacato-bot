@@ -17,7 +17,11 @@ func handleGradient(bot *tgbotapi.BotAPI, userId, chatId int64) error {
 		return err
 	}
 
-	gradient := CreateGradient(userAvatar.Bounds().Dx(), userAvatar.Bounds().Dy(), color.NRGBA{R: 0, G: 0, B: 255, A: 255}, color.NRGBA{R: 255, G: 0, B: 255, A: 255})
+	gradient := CachedCreateGradient(
+		userAvatar.Bounds().Dx(), userAvatar.Bounds().Dy(),
+		color.NRGBA{R: 0, G: 0, B: 255, A: 255},
+		color.NRGBA{R: 255, G: 0, B: 255, A: 255},
+	)
 
 	imgWithGradient := OverlayImage(userAvatar, gradient, 0.5)
 
