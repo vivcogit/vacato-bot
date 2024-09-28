@@ -15,6 +15,7 @@ func ImageToNRGBA(img image.Image) *image.NRGBA {
 	bounds := img.Bounds()
 	imgNRGBA := image.NewNRGBA(bounds)
 	draw.Draw(imgNRGBA, bounds, img, bounds.Min, draw.Src)
+
 	return imgNRGBA
 }
 
