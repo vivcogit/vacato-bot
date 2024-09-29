@@ -1,10 +1,12 @@
 package main
 
 import (
-	"hash/fnv"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
+	"image/png"
+	"os"
 )
 
 func ImageToNRGBA(img image.Image) *image.NRGBA {
@@ -19,49 +21,7 @@ func ImageToNRGBA(img image.Image) *image.NRGBA {
 	return imgNRGBA
 }
 
-func CreateGradient(width, height int, startColor, endColor color.NRGBA) *image.NRGBA {
-	gradientImg := image.NewNRGBA(image.Rect(0, 0, width, height))
-
-	for y := 0; y < height; y++ {
-		alpha := float64(y) / float64(height)
-		colorRow := BlendColors(startColor, endColor, alpha)
-
-		for x := 0; x < width; x++ {
-			gradientImg.SetNRGBA(x, y, colorRow)
-		}
-	}
-
-	return gradientImg
-}
-
-func getGradientKey(width, height int, startColor, endColor color.NRGBA) uint32 {
-	hasher := fnv.New32a()
-
-	buf := []byte{
-		byte(width), byte(width >> 8),
-		byte(height), byte(height >> 8),
-		startColor.R, startColor.G, startColor.B, startColor.A,
-		endColor.R, endColor.G, endColor.B, endColor.A,
-	}
-	hasher.Write(buf)
-	return hasher.Sum32()
-}
-
-var gradientCache = map[uint32]*image.NRGBA{}
-
-func CachedCreateGradient(width, height int, startColor, endColor color.NRGBA) *image.NRGBA {
-	key := getGradientKey(width, height, startColor, endColor)
-	if cacheValue, cacheExists := gradientCache[key]; cacheExists {
-		return cacheValue
-	}
-
-	value := CreateGradient(width, height, startColor, endColor)
-	gradientCache[key] = value
-
-	return value
-}
-
-func OverlayImage(imageA, imageB *image.NRGBA, alpha float64) *image.NRGBA {
+func OverlayImage(imageA, imageB *image.NRGBA, alpha float64) {
 	if alpha < 0 {
 		alpha = 0
 	}
@@ -69,20 +29,14 @@ func OverlayImage(imageA, imageB *image.NRGBA, alpha float64) *image.NRGBA {
 		alpha = 1
 	}
 
-	result := image.NewNRGBA(imageA.Bounds())
-
-	draw.Draw(result, imageA.Bounds(), imageA, image.Point{}, draw.Src)
-
 	for y := 0; y < imageA.Bounds().Dy(); y++ {
 		for x := 0; x < imageA.Bounds().Dx(); x++ {
-			originalPixel := result.NRGBAAt(x, y)
+			originalPixel := imageA.NRGBAAt(x, y)
 			overlayPixel := imageB.NRGBAAt(x, y)
 
-			result.SetNRGBA(x, y, BlendColors(originalPixel, overlayPixel, alpha))
+			imageA.SetNRGBA(x, y, BlendColors(originalPixel, overlayPixel, alpha))
 		}
 	}
-
-	return result
 }
 
 func BlendColors(colorA, colorB color.NRGBA, alpha float64) color.NRGBA {
@@ -92,4 +46,45 @@ func BlendColors(colorA, colorB color.NRGBA, alpha float64) color.NRGBA {
 		B: uint8(float64(colorA.B)*(1-alpha) + float64(colorB.B)*alpha),
 		A: uint8(float64(colorA.A)*(1-alpha) + float64(colorB.A)*alpha),
 	}
+}
+
+func LoadImage(path string) (*image.NRGBA, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("error opening image: %v", err)
+	}
+	defer file.Close()
+
+	img, err := png.Decode(file)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding image: %v", err)
+	}
+
+	bounds := img.Bounds()
+	nrgbaImg := image.NewNRGBA(bounds)
+	draw.Draw(nrgbaImg, bounds, img, bounds.Min, draw.Src)
+
+	return nrgbaImg, nil
+}
+
+func CompareImages(img1, img2 *image.NRGBA) bool {
+	bounds1 := img1.Bounds()
+	bounds2 := img2.Bounds()
+
+	if !bounds1.Eq(bounds2) {
+		return false
+	}
+
+	for y := bounds1.Min.Y; y < bounds1.Max.Y; y++ {
+		for x := bounds1.Min.X; x < bounds1.Max.X; x++ {
+			idx := img1.PixOffset(x, y)
+			r1, g1, b1, a1 := img1.Pix[idx], img1.Pix[idx+1], img1.Pix[idx+2], img1.Pix[idx+3]
+			r2, g2, b2, a2 := img2.Pix[idx], img2.Pix[idx+1], img2.Pix[idx+2], img2.Pix[idx+3]
+
+			if r1 != r2 || g1 != g2 || b1 != b2 || a1 != a2 {
+				return false
+			}
+		}
+	}
+	return true
 }
