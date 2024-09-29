@@ -5,10 +5,9 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
+COPY Roboto-Regular.ttf ./
 COPY *.go ./
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o /app
+RUN GOOS=linux go build -o ./app
 
-EXPOSE 8080
-
-CMD ["/app"]
+CMD ["/app/app"]
