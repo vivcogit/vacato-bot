@@ -5,6 +5,7 @@ import (
 	"errors"
 	"image/color"
 	"log"
+	"os"
 
 	"github.com/disintegration/imaging"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -42,9 +43,9 @@ func handleGradient(bot *tgbotapi.BotAPI, userId, chatId int64, text string) err
 }
 
 func Chatbot() {
-	token, err := GetToken()
-	if err != nil {
-		panic(err)
+	token := os.Getenv("TELEGRAM_BOT_TOKEN")
+	if token == "" {
+		panic("failed to retrieve the Telegram token from the environment")
 	}
 
 	bot, err := GetBot(token, true)
@@ -78,11 +79,14 @@ func Chatbot() {
 					continue
 				}
 
-				err := handleGradient(bot, userId, chatId, text)
-				if err != nil {
-					msg := tgbotapi.NewMessage(chatId, err.Error())
-					bot.Send(msg)
-				}
+				go func() {
+					err := handleGradient(bot, userId, chatId, text)
+					if err != nil {
+						msg := tgbotapi.NewMessage(chatId, err.Error())
+						bot.Send(msg)
+					}
+				}()
+
 				continue
 			default:
 				msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Unknown command")
