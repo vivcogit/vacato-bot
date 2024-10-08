@@ -89,8 +89,7 @@ func (vb *VacatoBot) Start() {
 			case "gradient":
 				text := update.Message.CommandArguments()
 				if text == "" {
-					msg := tgbotapi.NewMessage(chatId, "Please enter text after the /gradient command.\nFor example:\n\n/gradient day-off\ntoday")
-					vb.bot.Send(msg)
+					vb.sendMessage(chatId, "Please enter text after the /gradient command.\nFor example:\n\n/gradient day-off\ntoday")
 					continue
 				}
 
@@ -104,8 +103,6 @@ func (vb *VacatoBot) Start() {
 				continue
 			default:
 				vb.sendMessage(chatId, "Unknown command")
-				msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Unknown command")
-				vb.bot.Send(msg)
 			}
 		}
 	}
