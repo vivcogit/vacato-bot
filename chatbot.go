@@ -18,7 +18,7 @@ type VacatoBot struct {
 func (vb *VacatoBot) handleGradient(userId, chatId int64, text string) error {
 	userAvatar, err := GetUserAvatar(vb.bot, userId)
 	if err != nil {
-		log.Printf("[ERR] error geting user avatar: %v", err)
+		log.Printf("[ERR] error getting user avatar: %v", err)
 		return err
 	}
 
@@ -46,25 +46,38 @@ func (vb *VacatoBot) handleGradient(userId, chatId int64, text string) error {
 	return err
 }
 
-func (vb *VacatoBot) handleStart(chatId int64) {
-	vb.sendMessage(chatId, "Hi! ✨\nUse the /gradient command to apply a stunning gradient and custom text to your avatar!")
+func (vb *VacatoBot) sendMessage(chatId int64, text string) {
+	_, err := vb.bot.Send(tgbotapi.NewMessage(chatId, text))
+	if err != nil {
+		log.Printf("[ERR] failed to send message to chat %d: %v", chatId, err)
+	}
 }
 
-func (vb *VacatoBot) sendMessage(chatId int64, text string) {
-	vb.bot.Send(tgbotapi.NewMessage(chatId, text))
+func (vb *VacatoBot) handleMenu(chatId int64) {
+	msg := tgbotapi.NewMessage(chatId, "Tap the button below and tell me what text you'd like on your avatar.")
+	button := tgbotapi.NewInlineKeyboardButtonData("Add text to my avatar", "request_text")
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(button),
+	)
+	msg.ReplyMarkup = keyboard
+	vb.bot.Send(msg)
 }
 
 func (vb *VacatoBot) Init() {
-	command := tgbotapi.BotCommand{
-		Command:     "gradient",
-		Description: "Applies a gradient and custom text to your avatar. Text limited to two lines.",
+	commands := []tgbotapi.BotCommand{
+		{Command: "start", Description: "Start interacting with the bot."},
+		{Command: "menu", Description: "Add some text to your avatar"},
 	}
 
-	_, err := vb.bot.Request(tgbotapi.NewSetMyCommands(command))
+	_, err := vb.bot.Request(tgbotapi.NewSetMyCommands(commands...))
 	if err != nil {
 		log.Panic(err)
 	}
 }
+
+const requestTextMsg = "What would you like to add to your avatar?\n" +
+	"You can enter up to two lines, like 'On vacation!' or just 'Day off!'\n" +
+	"Please reply directly to this message with your text!"
 
 func (vb *VacatoBot) Start() {
 	updateConfig := tgbotapi.NewUpdate(0)
@@ -73,37 +86,43 @@ func (vb *VacatoBot) Start() {
 	updates := vb.bot.GetUpdatesChan(updateConfig)
 
 	for update := range updates {
-		if update.Message == nil {
-			continue
-		}
-
-		log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
-
-		if update.Message.IsCommand() {
-			userId := update.Message.From.ID
+		if update.Message != nil && update.Message.IsCommand() {
 			chatId := update.Message.Chat.ID
 
 			switch update.Message.Command() {
 			case "start":
-				vb.handleStart(chatId)
-			case "gradient":
-				text := update.Message.CommandArguments()
-				if text == "" {
-					vb.sendMessage(chatId, "Please enter text after the /gradient command.\nFor example:\n\n/gradient day-off\ntoday")
-					continue
-				}
+				vb.sendMessage(chatId, "Hey there! Want to add a fun message to your avatar? Use /menu to get started!")
+				vb.handleMenu(chatId)
 
-				go func() {
-					err := vb.handleGradient(userId, chatId, text)
-					if err != nil {
-						vb.sendMessage(chatId, err.Error())
+			case "menu":
+				vb.handleMenu(chatId)
+
+			default:
+				vb.sendMessage(chatId, "Oops! I don't recognize that command. Try something else!")
+			}
+		} else if update.CallbackQuery != nil {
+			if update.CallbackQuery.Data == "request_text" {
+				vb.bot.Send(tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, requestTextMsg))
+			}
+		} else if update.Message != nil && update.Message.ReplyToMessage != nil &&
+			update.Message.ReplyToMessage.Text == requestTextMsg {
+
+			text := update.Message.Text
+			chatId := update.Message.Chat.ID
+			userId := update.Message.From.ID
+
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[ERR] panic in handleGradient: %v", r)
 					}
 				}()
 
-				continue
-			default:
-				vb.sendMessage(chatId, "Unknown command")
-			}
+				err := vb.handleGradient(userId, chatId, text)
+				if err != nil {
+					vb.sendMessage(chatId, "Oh no! Something went wrong. Try again, please!\n\n"+err.Error())
+				}
+			}()
 		}
 	}
 }
