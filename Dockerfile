@@ -5,7 +5,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY Roboto-Regular.ttf ./
+COPY assets ./assets
 COPY *.go ./
 
 RUN GOOS=linux go build -o ./app

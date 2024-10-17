@@ -30,7 +30,7 @@ func LoadFont(fontPath string) (*sfnt.Font, error) {
 func DrawTextToImage(img *image.NRGBA, text string) error {
 	bounds := img.Bounds()
 
-	ttfFont, err := LoadFont("Roboto-Regular.ttf")
+	ttfFont, err := LoadFont("./assets/Roboto-Regular.ttf")
 	if err != nil {
 		return err
 	}
