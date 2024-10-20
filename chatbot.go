@@ -65,8 +65,8 @@ func (vb *VacatoBot) handleMenu(chatId int64) {
 
 func (vb *VacatoBot) Init() {
 	commands := []tgbotapi.BotCommand{
-		{Command: "start", Description: "Start interacting with the bot."},
-		{Command: "menu", Description: "Add some text to your avatar"},
+		{Command: "menu", Description: "Show menu"},
+		{Command: "avatar", Description: "Add some text to your avatar"},
 	}
 
 	_, err := vb.bot.Request(tgbotapi.NewSetMyCommands(commands...))
@@ -97,14 +97,24 @@ func (vb *VacatoBot) Start() {
 			case "menu":
 				vb.handleMenu(chatId)
 
+			case "avatar":
+				vb.sendMessage(chatId, requestTextMsg)
+
 			default:
 				vb.sendMessage(chatId, "Oops! I don't recognize that command. Try something else!")
 			}
-		} else if update.CallbackQuery != nil {
+			continue
+		}
+
+		if update.CallbackQuery != nil {
 			if update.CallbackQuery.Data == "request_text" {
-				vb.bot.Send(tgbotapi.NewMessage(update.CallbackQuery.Message.Chat.ID, requestTextMsg))
+				vb.sendMessage(update.CallbackQuery.Message.Chat.ID, requestTextMsg)
 			}
-		} else if update.Message != nil && update.Message.ReplyToMessage != nil &&
+
+			continue
+		}
+
+		if update.Message != nil && update.Message.ReplyToMessage != nil &&
 			update.Message.ReplyToMessage.Text == requestTextMsg {
 
 			text := update.Message.Text
