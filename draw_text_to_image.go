@@ -14,20 +14,48 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-var fontCache = map[string]*sfnt.Font{}
+var fontCache = map[string]*FontCache{}
 
-func CachedLoadFont(fontPath string) (*sfnt.Font, error) {
+type FontCache struct {
+	font          *sfnt.Font
+	defaultFace   font.Face
+	signatureFace font.Face
+}
+
+func CachedLoadFont(fontPath string) (*FontCache, error) {
 	if cacheValue, cacheExists := fontCache[fontPath]; cacheExists {
 		return cacheValue, nil
 	}
 
-	value, err := LoadFont(fontPath)
+	ttf, err := LoadFont(fontPath)
 
-	if err == nil {
-		fontCache[fontPath] = value
+	if err != nil {
+		return nil, err
 	}
 
-	return value, err
+	defaultFace, err := opentype.NewFace(ttf, &opentype.FaceOptions{
+		Size:    48,
+		DPI:     72,
+		Hinting: font.HintingNone,
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	signatureFace, _ := opentype.NewFace(ttf, &opentype.FaceOptions{
+		Size:    16,
+		DPI:     72,
+		Hinting: font.HintingNone,
+	})
+
+	fontCache[fontPath] = &FontCache{
+		font:          ttf,
+		defaultFace:   defaultFace,
+		signatureFace: signatureFace,
+	}
+
+	return fontCache[fontPath], nil
 }
 
 func LoadFont(fontPath string) (*sfnt.Font, error) {
@@ -35,7 +63,9 @@ func LoadFont(fontPath string) (*sfnt.Font, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error reading font: %v", err)
 	}
+
 	ttfFont, err := opentype.Parse(fontBytes)
+
 	if err != nil {
 		return nil, fmt.Errorf("error parsing font: %v", err)
 	}
@@ -58,25 +88,15 @@ func DrawTextToImage(img *image.NRGBA, text string) error {
 	horizontalPadding := float64(bounds.Dx()) * horizontalPaddingPercent / 100.0
 	verticalPadding := float64(bounds.Dy()) * verticalPaddingPercent / 100.0
 
-	face, err := opentype.NewFace(ttfFont, &opentype.FaceOptions{
-		Size:    fontSize,
-		DPI:     72,
-		Hinting: font.HintingNone,
-	})
-	if err != nil {
-		return fmt.Errorf("error creating font face: %v", err)
-	}
-	defer face.Close()
-
 	lines := strings.Split(text, "\n")
 	if len(lines) > 2 {
 		lines = lines[:2]
 	}
 
-	textWidth, textHeight := measureMultilineTextSize(face, lines)
+	textWidth, textHeight := measureMultilineTextSize(ttfFont.defaultFace, lines)
 	scaleFactor := calculateScaleFactor(textWidth, textHeight, float64(bounds.Dx()), float64(bounds.Dy()), horizontalPadding, verticalPadding)
 
-	scaledFace, err := opentype.NewFace(ttfFont, &opentype.FaceOptions{
+	scaledFace, err := opentype.NewFace(ttfFont.font, &opentype.FaceOptions{
 		Size:    fontSize * scaleFactor,
 		DPI:     72,
 		Hinting: font.HintingNone,
@@ -107,6 +127,29 @@ func DrawTextToImage(img *image.NRGBA, text string) error {
 		}
 		drawer.DrawString(line)
 	}
+
+	return nil
+}
+
+const signature = "@VacatoBot"
+
+func DrawSignature(img *image.NRGBA) error {
+	ttfFont, err := CachedLoadFont("./assets/Roboto-Regular.ttf")
+	if err != nil {
+		return err
+	}
+
+	println(img.Bounds().Dx() * 64)
+	drawer := &font.Drawer{
+		Dst:  img,
+		Src:  image.NewUniform(color.White),
+		Face: ttfFont.signatureFace,
+		Dot: fixed.Point26_6{
+			X: fixed.Int26_6(img.Bounds().Dx()*64 - 6000),
+			Y: fixed.Int26_6(img.Bounds().Dy()*64 - 500),
+		},
+	}
+	drawer.DrawString(signature)
 
 	return nil
 }

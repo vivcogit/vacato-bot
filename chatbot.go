@@ -30,6 +30,7 @@ func (vb *VacatoBot) handleGradient(userId, chatId int64, text string) error {
 
 	OverlayImage(userAvatar, gradient, 0.5)
 	DrawTextToImage(userAvatar, text)
+	DrawSignature(userAvatar)
 
 	var buf bytes.Buffer
 	err = imaging.Encode(&buf, userAvatar, imaging.PNG)
