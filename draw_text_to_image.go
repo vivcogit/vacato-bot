@@ -14,6 +14,22 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
+var fontCache = map[string]*sfnt.Font{}
+
+func CachedLoadFont(fontPath string) (*sfnt.Font, error) {
+	if cacheValue, cacheExists := fontCache[fontPath]; cacheExists {
+		return cacheValue, nil
+	}
+
+	value, err := LoadFont(fontPath)
+
+	if err == nil {
+		fontCache[fontPath] = value
+	}
+
+	return value, err
+}
+
 func LoadFont(fontPath string) (*sfnt.Font, error) {
 	fontBytes, err := os.ReadFile(fontPath)
 	if err != nil {
@@ -30,7 +46,7 @@ func LoadFont(fontPath string) (*sfnt.Font, error) {
 func DrawTextToImage(img *image.NRGBA, text string) error {
 	bounds := img.Bounds()
 
-	ttfFont, err := LoadFont("./assets/Roboto-Regular.ttf")
+	ttfFont, err := CachedLoadFont("./assets/Roboto-Regular.ttf")
 	if err != nil {
 		return err
 	}
@@ -65,8 +81,13 @@ func DrawTextToImage(img *image.NRGBA, text string) error {
 		DPI:     72,
 		Hinting: font.HintingNone,
 	})
+
 	if err != nil {
 		return fmt.Errorf("error creating scaled font face: %v", err)
+	}
+
+	scaledDrawer := &font.Drawer{
+		Face: scaledFace,
 	}
 	defer scaledFace.Close()
 
@@ -75,7 +96,7 @@ func DrawTextToImage(img *image.NRGBA, text string) error {
 	startY := verticalPadding + ((float64(bounds.Dy()) - 2*verticalPadding - textHeight) / 2) + float64(scaledFace.Metrics().Ascent.Ceil())
 
 	for i, line := range lines {
-		lineWidth := measureLineWidth(scaledFace, line)
+		lineWidth := measureLineWidth(scaledDrawer, line)
 		lineStartX := horizontalPadding + (float64(bounds.Dx())-2*horizontalPadding-lineWidth)/2
 		y := startY + float64(i)*float64(scaledFace.Metrics().Height.Ceil())
 		drawer := &font.Drawer{
@@ -92,9 +113,12 @@ func DrawTextToImage(img *image.NRGBA, text string) error {
 
 func measureMultilineTextSize(face font.Face, lines []string) (float64, float64) {
 	maxWidth := 0.0
+	drawer := &font.Drawer{
+		Face: face,
+	}
 
 	for _, line := range lines {
-		lineWidth := measureLineWidth(face, line)
+		lineWidth := measureLineWidth(drawer, line)
 		if lineWidth > maxWidth {
 			maxWidth = lineWidth
 		}
@@ -107,10 +131,7 @@ func measureMultilineTextHeight(face font.Face, linesCount int) float64 {
 	return float64(face.Metrics().Height.Ceil() * linesCount)
 }
 
-func measureLineWidth(face font.Face, text string) float64 {
-	drawer := &font.Drawer{
-		Face: face,
-	}
+func measureLineWidth(drawer *font.Drawer, text string) float64 {
 	width := drawer.MeasureString(text)
 	return float64(width) / 64
 }
