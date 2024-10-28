@@ -4,21 +4,72 @@ import (
 	"bytes"
 	"errors"
 	"image/color"
-	"log"
 	"os"
 
 	"github.com/disintegration/imaging"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/sirupsen/logrus"
 )
 
 type VacatoBot struct {
-	bot *tgbotapi.BotAPI
+	bot    *tgbotapi.BotAPI
+	logger *logrus.Logger
 }
 
-func (vb *VacatoBot) handleGradient(userId, chatId int64, text string) error {
-	userAvatar, err := GetUserAvatar(vb.bot, userId)
+func getUpdateChatId(update tgbotapi.Update) int64 {
+	if update.Message != nil {
+		return update.Message.Chat.ID
+	} else if update.CallbackQuery != nil {
+		return update.CallbackQuery.Message.Chat.ID
+	}
+	return 0
+}
+
+func getUpdateUserFrom(update tgbotapi.Update) *tgbotapi.User {
+	if update.Message != nil {
+		return update.Message.From
+	} else if update.CallbackQuery != nil {
+		return update.CallbackQuery.From
+	}
+	return nil
+}
+
+func (vb *VacatoBot) getUpdateLogger(update tgbotapi.Update) *logrus.Entry {
+	user := getUpdateUserFrom(update)
+	chatId := getUpdateChatId(update)
+
+	if user != nil {
+		return vb.logger.WithFields(logrus.Fields{
+			"user_id":   user.ID,
+			"user_name": user.UserName,
+			"chat_id":   chatId,
+		})
+	}
+
+	return vb.logger.WithField("chat_id", chatId)
+}
+
+func (vb *VacatoBot) sendMessage(update tgbotapi.Update, text string) {
+	chatId := getUpdateChatId(update)
+	logger := vb.getUpdateLogger(update)
+
+	logger.WithField("text", text).Info("Sending message")
+
+	_, err := vb.bot.Send(tgbotapi.NewMessage(chatId, text))
 	if err != nil {
-		log.Printf("[ERR] error getting user avatar: %v", err)
+		logger.WithError(err).Error("Failed to send message")
+	}
+}
+
+func (vb *VacatoBot) handleGradient(update tgbotapi.Update) error {
+	logger := vb.getUpdateLogger(update)
+	text := update.Message.Text
+
+	logger.WithField("text", text).Info("Handling gradient")
+
+	userAvatar, err := GetUserAvatar(vb.bot, update.Message.From.ID)
+	if err != nil {
+		logger.WithError(err).Error("Failed to get user avatar")
 		return err
 	}
 
@@ -35,52 +86,92 @@ func (vb *VacatoBot) handleGradient(userId, chatId int64, text string) error {
 	var buf bytes.Buffer
 	err = imaging.Encode(&buf, userAvatar, imaging.PNG)
 	if err != nil {
-		log.Printf("[ERR] error saving image: %v", err)
-		return errors.New("error due overlaying")
+		logger.WithError(err).Error("Failed to encode image")
+		return errors.New("error during overlaying")
 	}
 
-	photo := tgbotapi.NewPhoto(chatId, tgbotapi.FileBytes{
+	photo := tgbotapi.NewPhoto(update.Message.Chat.ID, tgbotapi.FileBytes{
 		Name:  "avatar_with_gradient.png",
 		Bytes: buf.Bytes(),
 	})
 	_, err = vb.bot.Send(photo)
+	if err != nil {
+		logger.WithError(err).Error("Failed to send photo")
+	}
 	return err
 }
 
-func (vb *VacatoBot) sendMessage(chatId int64, text string) {
-	_, err := vb.bot.Send(tgbotapi.NewMessage(chatId, text))
-	if err != nil {
-		log.Printf("[ERR] failed to send message to chat %d: %v", chatId, err)
-	}
-}
+func (vb *VacatoBot) handleMenu(update tgbotapi.Update) {
+	logger := vb.getUpdateLogger(update)
+	logger.Info("Displaying menu")
 
-func (vb *VacatoBot) handleMenu(chatId int64) {
-	msg := tgbotapi.NewMessage(chatId, "Tap the button below and tell me what text you'd like on your avatar.")
+	msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Tap the button below and tell me what text you'd like on your avatar.")
 	button := tgbotapi.NewInlineKeyboardButtonData("Add text to my avatar", "request_text")
 	keyboard := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(button),
 	)
 	msg.ReplyMarkup = keyboard
-	vb.bot.Send(msg)
-}
 
-func (vb *VacatoBot) Init() {
-	commands := []tgbotapi.BotCommand{
-		{Command: "menu", Description: "Show menu"},
-		{Command: "avatar", Description: "Add some text to your avatar"},
-	}
-
-	_, err := vb.bot.Request(tgbotapi.NewSetMyCommands(commands...))
+	_, err := vb.bot.Send(msg)
 	if err != nil {
-		log.Panic(err)
+		logger.WithError(err).Error("Failed to send menu message")
 	}
 }
 
-const requestTextMsg = "What would you like to add to your avatar?\n" +
-	"You can enter up to two lines, like 'On vacation!' or just 'Day off!'\n" +
-	"Please reply directly to this message with your text!"
+func (vb *VacatoBot) handleCommand(update tgbotapi.Update) {
+	command := update.Message.Command()
+	logger := vb.getUpdateLogger(update)
+	logger.WithField("command", command).Info("Received command")
+
+	switch command {
+	case "start":
+		vb.sendMessage(update, "Hey there! Want to add a fun message to your avatar? Use /menu to get started!")
+		vb.handleMenu(update)
+
+	case "menu":
+		vb.handleMenu(update)
+
+	case "avatar":
+		vb.sendMessage(update, requestTextMsg)
+
+	default:
+		logger.Errorf("Unknown command %s", command)
+		vb.sendMessage(update, "Oops! I don't recognize that command. Try something else!")
+	}
+}
+
+func (vb *VacatoBot) handleCallback(update tgbotapi.Update) {
+	logger := vb.getUpdateLogger(update)
+	logger.WithField("callback_data", update.CallbackQuery.Data).Info("Received callback query")
+
+	if update.CallbackQuery.Data == "request_text" {
+		vb.sendMessage(update, requestTextMsg)
+	}
+}
+
+func (vb *VacatoBot) handleReply(update tgbotapi.Update) {
+	text := update.Message.Text
+	logger := vb.getUpdateLogger(update)
+	logger.WithField("text", text).Info("Handling text reply")
+
+	if update.Message.ReplyToMessage.Text == requestTextMsg {
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logger.WithField("error", r).Error("Panic in handleGradient")
+				}
+			}()
+
+			err := vb.handleGradient(update)
+			if err != nil {
+				vb.sendMessage(update, "Oh no! Something went wrong. Try again, please!\n\n"+err.Error())
+			}
+		}()
+	}
+}
 
 func (vb *VacatoBot) Start() {
+	vb.logger.Info("Starting bot")
 	updateConfig := tgbotapi.NewUpdate(0)
 	updateConfig.Timeout = 60
 
@@ -88,52 +179,11 @@ func (vb *VacatoBot) Start() {
 
 	for update := range updates {
 		if update.Message != nil && update.Message.IsCommand() {
-			chatId := update.Message.Chat.ID
-
-			switch update.Message.Command() {
-			case "start":
-				vb.sendMessage(chatId, "Hey there! Want to add a fun message to your avatar? Use /menu to get started!")
-				vb.handleMenu(chatId)
-
-			case "menu":
-				vb.handleMenu(chatId)
-
-			case "avatar":
-				vb.sendMessage(chatId, requestTextMsg)
-
-			default:
-				vb.sendMessage(chatId, "Oops! I don't recognize that command. Try something else!")
-			}
-			continue
-		}
-
-		if update.CallbackQuery != nil {
-			if update.CallbackQuery.Data == "request_text" {
-				vb.sendMessage(update.CallbackQuery.Message.Chat.ID, requestTextMsg)
-			}
-
-			continue
-		}
-
-		if update.Message != nil && update.Message.ReplyToMessage != nil &&
-			update.Message.ReplyToMessage.Text == requestTextMsg {
-
-			text := update.Message.Text
-			chatId := update.Message.Chat.ID
-			userId := update.Message.From.ID
-
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						log.Printf("[ERR] panic in handleGradient: %v", r)
-					}
-				}()
-
-				err := vb.handleGradient(userId, chatId, text)
-				if err != nil {
-					vb.sendMessage(chatId, "Oh no! Something went wrong. Try again, please!\n\n"+err.Error())
-				}
-			}()
+			vb.handleCommand(update)
+		} else if update.CallbackQuery != nil {
+			vb.handleCallback(update)
+		} else if update.Message != nil && update.Message.ReplyToMessage != nil {
+			vb.handleReply(update)
 		}
 	}
 }
@@ -141,14 +191,26 @@ func (vb *VacatoBot) Start() {
 func NewVacatoBot() VacatoBot {
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
 	if token == "" {
-		panic("failed to retrieve the Telegram token from the environment")
+		logrus.Fatal("Failed to retrieve the Telegram token from the environment")
 	}
 
-	bot, err := GetBot(token, true)
+	isDebug := os.Getenv("DEBUG") == "1"
 
+	logger := logrus.New()
+	if isDebug {
+		logger.SetFormatter(&logrus.TextFormatter{
+			FullTimestamp: true,
+		})
+		logger.SetLevel(logrus.DebugLevel)
+	} else {
+		logger.SetFormatter(&logrus.JSONFormatter{})
+		logger.SetLevel(logrus.InfoLevel)
+	}
+
+	bot, err := GetBot(token, isDebug)
 	if err != nil {
-		panic(err)
+		logger.WithError(err).Fatal("Failed to initialize bot")
 	}
 
-	return VacatoBot{bot}
+	return VacatoBot{bot: bot, logger: logger}
 }
