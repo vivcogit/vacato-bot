@@ -139,7 +139,6 @@ func DrawSignature(img *image.NRGBA) error {
 		return err
 	}
 
-	println(img.Bounds().Dx() * 64)
 	drawer := &font.Drawer{
 		Dst:  img,
 		Src:  image.NewUniform(color.White),
