@@ -4,16 +4,17 @@ import (
 	"bytes"
 	"errors"
 	"image/color"
+	"image/png"
 	"os"
 
-	"github.com/disintegration/imaging"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/sirupsen/logrus"
 )
 
 type VacatoBot struct {
-	bot    *tgbotapi.BotAPI
-	logger *logrus.Logger
+	bot     *tgbotapi.BotAPI
+	logger  *logrus.Logger
+	encoder png.Encoder
 }
 
 func getUpdateChatId(update tgbotapi.Update) int64 {
@@ -84,7 +85,7 @@ func (vb *VacatoBot) handleGradient(update tgbotapi.Update) error {
 	DrawSignature(userAvatar)
 
 	var buf bytes.Buffer
-	err = imaging.Encode(&buf, userAvatar, imaging.PNG)
+	err = vb.encoder.Encode(&buf, userAvatar)
 	if err != nil {
 		logger.WithError(err).Error("Failed to encode image")
 		return errors.New("error during overlaying")
@@ -170,6 +171,25 @@ func (vb *VacatoBot) handleReply(update tgbotapi.Update) {
 	}
 }
 
+func (vb *VacatoBot) handlePlainMessage(update tgbotapi.Update) {
+	text := update.Message.Text
+	logger := vb.getUpdateLogger(update)
+	logger.WithField("text", text).Info("Handling plain message")
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logger.WithField("error", r).Error("Panic in handleGradient")
+			}
+		}()
+
+		err := vb.handleGradient(update)
+		if err != nil {
+			vb.sendMessage(update, "Oh no! Something went wrong. Try again, please!\n\n"+err.Error())
+		}
+	}()
+}
+
 func (vb *VacatoBot) Start() {
 	vb.logger.Info("Starting bot")
 	updateConfig := tgbotapi.NewUpdate(0)
@@ -184,6 +204,8 @@ func (vb *VacatoBot) Start() {
 			vb.handleCallback(update)
 		} else if update.Message != nil && update.Message.ReplyToMessage != nil {
 			vb.handleReply(update)
+		} else {
+			vb.handlePlainMessage(update)
 		}
 	}
 }
@@ -212,5 +234,7 @@ func NewVacatoBot() VacatoBot {
 		logger.WithError(err).Fatal("Failed to initialize bot")
 	}
 
-	return VacatoBot{bot: bot, logger: logger}
+	encoder := png.Encoder{}
+
+	return VacatoBot{bot: bot, logger: logger, encoder: encoder}
 }

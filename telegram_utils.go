@@ -61,6 +61,7 @@ func GetUserAvatar(bot *tgbotapi.BotAPI, userId int64) (*image.NRGBA, error) {
 
 	img, err := imaging.Decode(resp.Body)
 	if err != nil {
+		println(err)
 		return nil, fmt.Errorf("error decoding avatar: %s", err)
 	}
 
