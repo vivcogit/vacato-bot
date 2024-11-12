@@ -60,7 +60,7 @@ func TestGetGradientKey(t *testing.T) {
 				endColor:   color.NRGBA{R: 0, G: 0, B: 255, A: 255},
 			},
 			params2: GradientParams{
-				width:      101, // Изменили ширину
+				width:      101,
 				height:     200,
 				startColor: color.NRGBA{R: 255, G: 0, B: 0, A: 255},
 				endColor:   color.NRGBA{R: 0, G: 0, B: 255, A: 255},

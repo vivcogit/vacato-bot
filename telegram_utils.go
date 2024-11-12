@@ -4,12 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	_ "image/jpeg"
 	"io"
 	"log"
 	"net/http"
 	"time"
 
-	"github.com/disintegration/imaging"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
@@ -25,7 +25,7 @@ func GetBot(token string, isDebug bool) (*tgbotapi.BotAPI, error) {
 }
 
 var httpClient = &http.Client{
-	Timeout: 10 * time.Second, // Устанавливаем тайм-аут для запросов
+	Timeout: 10 * time.Second,
 }
 
 func GetUserAvatar(bot *tgbotapi.BotAPI, userId int64) (*image.NRGBA, error) {
@@ -59,7 +59,7 @@ func GetUserAvatar(bot *tgbotapi.BotAPI, userId int64) (*image.NRGBA, error) {
 		return nil, fmt.Errorf("network error loading avatar, status: %d, body: %s", resp.StatusCode, string(body))
 	}
 
-	img, err := imaging.Decode(resp.Body)
+	img, _, err := image.Decode(resp.Body)
 	if err != nil {
 		println(err)
 		return nil, fmt.Errorf("error decoding avatar: %s", err)
